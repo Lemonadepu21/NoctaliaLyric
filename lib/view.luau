@@ -10,9 +10,7 @@ function M.motion(mode, elapsed, duration)
         y = mode == "slide_up" and 4 * (1 - eased) or 0, active = true }
 end
 
-function M.textBlock(pair, config, width, height, key, opacity, frame, renderer)
-    local family = config("font_family")
-    if family == "" then family = nil end
+local function slotsFor(pair, config, height)
     local dual = config("second_line") ~= "off"
     local gap = dual and math.min(config("line_gap"), height / 4) or 0
     local firstSize = dual and config("dual_font_size") or config("font_size")
@@ -20,7 +18,33 @@ function M.textBlock(pair, config, width, height, key, opacity, frame, renderer)
     local scale = dual and math.min(1, (height - gap) / (firstSize + secondSize)) or 1
     local firstHeight = dual and math.floor(firstSize * scale) or height
     local secondHeight = dual and math.floor(secondSize * scale) or 0
-    local function line(text, size, color, weight, slotHeight, name)
+    local slots = {
+        { text = pair.first, size = dual and math.min(firstSize, firstHeight) or firstSize,
+            color = pair.color, weight = config("font_weight"), height = firstHeight },
+    }
+    if dual then slots[2] = { text = pair.second, size = math.min(secondSize, secondHeight),
+        color = config("secondary_color"), weight = "normal", height = secondHeight } end
+    return slots, gap, dual
+end
+
+function M.textWidth(pair, config, height, renderer)
+    if not renderer or renderer.disabled then return config("text_width") end
+    local slots = slotsFor(pair, config, height)
+    local width = 1
+    for _, slot in ipairs(slots) do
+        local source = renderer:source(slot, config)
+        if not source or not source.width then return nil end
+        width = math.max(width, math.ceil(source.width))
+    end
+    return math.min(config("text_width"), width)
+end
+
+function M.textBlock(pair, config, width, height, key, opacity, frame, renderer)
+    local family = config("font_family")
+    if family == "" then family = nil end
+    local slots, gap, dual = slotsFor(pair, config, height)
+    local function line(slot, name)
+        local text, size, color, weight, slotHeight = slot.text, slot.size, slot.color, slot.weight, slot.height
         return ui.row({ key = name, width = width, height = slotHeight, align = "center" }, {
             ui.label({ key = "label", text = text, width = width, maxWidth = width, maxLines = 1,
                 fontSize = dual and math.min(size, slotHeight) or size,
@@ -28,19 +52,10 @@ function M.textBlock(pair, config, width, height, key, opacity, frame, renderer)
                 textAlign = config("text_align"), color = color })
         })
     end
-    local slots = {
-        { text = pair.first, size = dual and math.min(firstSize, firstHeight) or firstSize,
-            color = pair.color, weight = config("font_weight"), height = firstHeight },
-    }
-    if dual then slots[2] = { text = pair.second, size = math.min(secondSize, secondHeight),
-        color = config("secondary_color"), weight = "normal", height = secondHeight } end
     local image = renderer and renderer:draw(slots, config, width, height, gap, frame, not dual, key)
     if image then return ui.image({ key = key, path = image, width = width, height = height, opacity = opacity, fit = "contain" }) end
-    local rows = { line(pair.first, firstSize, pair.color, config("font_weight"), firstHeight, "current") }
-    if dual then
-        rows[#rows + 1] = line(pair.second, config("secondary_font_size"), config("secondary_color"),
-            "normal", secondHeight, "next")
-    end
+    local rows = { line(slots[1], "current") }
+    if dual then rows[#rows + 1] = line(slots[2], "next") end
     return ui.column({ key = key, gap = gap, width = width, height = height, opacity = opacity,
         align = "start", justify = "center" }, rows)
 end

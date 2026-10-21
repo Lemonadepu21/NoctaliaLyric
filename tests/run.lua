@@ -317,9 +317,17 @@ local function finish(width, height, baseline)
     files[renderer.directory .. "/source.svg"] = string.format('<svg viewBox="0 0 %s %s"><defs/><g><use xlink:href="#glyph0-1" x="0" y="%s"/></g></svg>', width, height, baseline)
     callbacks[#callbacks]({ exitCode = 0 })
 end
+local measuredPair = { first = slots[1].text, second = "", color = "on_surface" }
+equal(model.textWidth(measuredPair, config, 20, renderer), nil, "wait for asynchronous width measurement")
 equal(renderer:draw(slots, config, 260, 20, 0, nil, true, "incoming"), nil, "native fallback while shaping")
+equal(#requests, 1, "measurement and rendering share one shaping process")
 equal(requests[1][9], "--text=" .. slots[1].text, "text stays a single argument including XML characters")
 finish(400, 18, 14)
+equal(model.textWidth(measuredPair, config, 20, renderer), 260, "cap overflowing lyrics at the configured maximum")
+defaults.text_width = 500
+equal(model.textWidth(measuredPair, config, 20, renderer), 400, "expand long lyrics completely when they fit")
+equal(#requests, 1, "changing maximum width reuses shaped text")
+defaults.text_width = 260
 local path = renderer:draw(slots, config, 260, 20, 0, { x = 8, y = 4 }, true, "incoming")
 equal(files[path]:find('clip%-path="url%(#viewport%)"') ~= nil, true, "text clips inside fixed viewport")
 equal(files[path]:find('x="8.00" y="5.00"', 1, true) ~= nil, true, "only glyph coordinates move")
@@ -357,4 +365,37 @@ local originalRender = env.barWidget.render
 env.barWidget.render = function(value) renders = renders + 1; originalRender(value) end
 for _ = 1, 20 do env.update() end
 equal(renders, 0, "unchanged paused widget does not resubmit UI")
+
+-- Exercise sizing through the widget, including the native background and cover bounds.
+local widths = { Current = 80.2, Next = 180, Long = 220, Overflow = 400 }
+local sizingRenderer = { source = function(_, slot) return { width = widths[slot.text] } end,
+    draw = function() end, close = function() end }
+local originalRequire = env.require
+env.require = function(path)
+    if path == "./lib/text.luau" then return { new = function() return sizingRenderer end } end
+    return originalRequire(path)
+end
+defaults.transition, defaults.second_line = "none", "off"
+assert(loadfile("widget.luau", "t", env))()
+equal(find(view, "lyrics").props.width, 81, "short lyrics shrink to rounded natural width")
+equal(view.props.width, 118, "total width includes cover, gap and padding")
+equal(find(view, "progress").props.width, 110, "progress background follows dynamic content width")
+watchers.lyrics({ status = "synced", lines = lrc.parse("[00:00]Long") })
+equal(find(view, "lyrics").props.width, 220, "long lyrics expand before scrolling")
+watchers.lyrics({ status = "synced", lines = lrc.parse("[00:00]Overflow") })
+equal(find(view, "lyrics").props.width, 260, "overflow uses the full maximum viewport")
+defaults.text_width = 500
+env.onConfigChanged()
+equal(find(view, "lyrics").props.width, 400, "increasing the maximum shows the complete line")
+defaults.second_line = "next"
+env.onConfigChanged()
+watchers.lyrics({ status = "synced", lines = lrc.parse("[00:00]Current\n[00:02]Next") })
+equal(find(view, "lyrics").props.width, 180, "dual lines use the longer row")
+defaults.second_line = "off"
+env.onConfigChanged()
+watchers.lyrics({ status = "synced", lines = lrc.parse("[00:00]Pending") })
+equal(find(view, "lyrics").props.width, 81, "pending shaping retains the previous width")
+widths.Pending = 90
+env.onConfigChanged()
+equal(find(view, "lyrics").props.width, 90, "ready measurement updates the widget width")
 print(string.format("Passed %d checks", checks))

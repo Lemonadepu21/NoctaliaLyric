@@ -11,7 +11,7 @@ local function lyricState(value)
     return value and (not value.source or value.source == "mpris") and value or { lines = {}, status = "missing" }
 end
 local lyrics = lyricState(noctalia.state.get("lyrics"))
-local shown, previous, track, changedAt
+local shown, previous, track, changedAt, textWidth
 
 function update()
     local tr = noctalia.tr
@@ -67,7 +67,11 @@ function update()
     local showCover = config("show_cover") or vertical
     local coverWidth = showCover and size or 0
     local gap = showCover and not vertical and config("cover_gap") or 0
-    local width = vertical and size or config("text_width") + coverWidth + gap
+    if not vertical then
+        textWidth = math.min(config("text_width"), view.textWidth(pair, config, innerHeight, renderer)
+            or textWidth or config("text_width"))
+    end
+    local width = vertical and size or textWidth + coverWidth + gap
     local children = {}
     if showCover then
         if media.cover then
@@ -82,7 +86,7 @@ function update()
         end
     end
     if not vertical then
-        children[#children + 1] = view.lyricLayer(pair, previous, frame, config, config("text_width"), innerHeight, renderer)
+        children[#children + 1] = view.lyricLayer(pair, previous, frame, config, textWidth, innerHeight, renderer)
     end
     local container = vertical and ui.column or ui.row
     local content = container({ key = "content", gap = gap, width = width, height = innerHeight,
