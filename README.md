@@ -124,7 +124,7 @@ noctalia msg plugins enable pupu/noctalia-lyric
 | `text_color` / `secondary_color` | `on_surface` / `on_surface_variant` | 当前句与第二行颜色 |
 | `show_background` | `false` | 显示组件内部背景 |
 | `background_color` / `background_radius` | `surface_variant` / `12` | 内部背景颜色与圆角 |
-| `padding_h` / `padding_v` | `4` / `1` | 水平与垂直内边距 |
+| `padding_h` / `padding_v` | `4` / `1` | 内容水平与垂直内边距；进度填充覆盖水平内边距 |
 | `time_offset` | `0` | 歌词时间偏移，单位 ms；正数提前，负数延后 |
 | `hide_idle` / `hide_paused` | `true` / `false` | 无播放器／暂停时隐藏 |
 | `dim_paused` | `true` | 暂停时使用柔和文字色 |

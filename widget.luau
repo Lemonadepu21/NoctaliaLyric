@@ -89,7 +89,8 @@ function update()
         children[#children + 1] = view.lyricLayer(pair, previous, frame, config, textWidth, innerHeight, renderer)
     end
     local container = vertical and ui.column or ui.row
-    local content = container({ key = "content", gap = gap, width = width, height = innerHeight,
+    width = width + config("padding_h") * 2
+    local content = container({ key = "content", gap = gap, width = width, height = innerHeight, paddingH = config("padding_h"),
         align = "center", opacity = config("text_opacity") }, children)
     local layers = { content }
     if config("show_progress") and not vertical and media.available and (media.duration or 0) > 0 then
@@ -98,8 +99,8 @@ function update()
             fill = config("progress_color"), opacity = config("progress_opacity"),
             track = "primary/0", radius = config("background_radius") }))
     end
-    barWidget.render(ui.row({ key = "root", gap = -width, width = width + config("padding_h") * 2,
-        height = height, align = "center", paddingH = config("padding_h"), paddingV = config("padding_v"),
+    barWidget.render(ui.row({ key = "root", gap = -width, width = width,
+        height = height, align = "center", paddingV = config("padding_v"),
         radius = config("background_radius"), fill = config("show_background") and config("background_color") or "surface/0" }, layers))
     local tip = media.available and (media.title .. "\n" .. media.artist .. "\n" .. first .. "\n" .. second
         .. "\n" .. tr("state." .. (lyrics.source or lyrics.status))) or first
