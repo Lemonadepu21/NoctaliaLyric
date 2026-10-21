@@ -304,7 +304,7 @@ env.require = function(path)
     end
 assert(loadPlugin("widget.luau", "t", env))()
 equal(visible, true)
-equal(view.kind, "row")
+equal(view.kind, "column")
 equal(view.children[2].children[2].children[1].props.fill, "surface/0", "empty outgoing layer stays transparent")
 local function find(node, key)
     if node.props.key == key then return node end
@@ -319,7 +319,8 @@ equal(text("current"), "Current", "lyrics on right")
 equal(text("next"), "Next")
 equal(find(find(view, "incoming"), "current").children[1].props.fontFamily, nil, "inherit default font")
 equal(find(view, "progress").props.progress, 0.25, "native background progress")
-equal(view.props.gap, -find(view, "content").props.width, "background overlays content without growing width")
+equal(view.props.gap, -find(view, "content").props.height, "background overlays content by height without guessing its width")
+equal(view.props.align, "stretch", "progress spans the native measured content width")
 equal(find(view, "incoming").props.height, 20, "padding is included in fixed content height")
 equal(find(find(view, "incoming"), "current").props.height + find(find(view, "incoming"), "next").props.height + defaults.line_gap, 18, "compact rows leave balanced outer padding")
 equal(find(view, "incoming").props.justify, "center", "compact pair is centered as one block")
@@ -370,13 +371,13 @@ env.onConfigChanged()
 watchers.media({ available = true, playing = false, title = "Test", artist = "Artist", player = "test.instance", positionMs = 1000 })
 watchers.media({ available = true, playing = false, title = "Test", artist = "Artist", player = "test.instance", positionMs = 3000 })
 equal(find(view, "lyrics").props.height, 20)
-equal(find(view, "incoming").props.width, 260, "motion keeps the text viewport fixed")
+equal(find(view, "incoming").props.minWidth, 0, "fading short text keeps native intrinsic width")
 equal(interval, 33, "fast ticks only while transitioning")
-local widthBefore = view.props.width
+local heightBefore = view.props.height
 clockNow = clockNow + 240
 env.update()
-equal(find(view, "lyrics").props.width, 260)
-equal(view.props.width, widthBefore, "animation does not move other bar widgets")
+equal(find(view, "lyrics").props.minWidth, 0)
+equal(view.props.height, heightBefore, "animation preserves the fixed capsule height")
 equal(interval, 1000, "paused widget returns to slow ticks")
 equal(find(find(view, "incoming"), "current").children[1].props.color, "on_surface_variant", "native paused color")
 equal(find(find(view, "incoming"), "current").children[1].props.baseline, "textFixedHeight", "baseline is independent of lyric glyphs")
@@ -408,7 +409,7 @@ local renderer = assert(loadPlugin("lib/text.luau", "t", renderEnv))().new()
 local slots = { { text = "ABCD", size = 13, color = "on_surface", weight = "medium", height = 20 } }
 local function config(key) return defaults[key] end
 local measuredPair = { first = slots[1].text, second = "", color = "on_surface" }
-equal(model.textWidth(measuredPair, config, 20, renderer), nil, "wait for asynchronous width measurement")
+equal(renderer:source(slots[1], config).width, nil, "wait for asynchronous window measurement")
 equal(renderer:display(slots[1], config, 260), "ABCD", "native fallback while measuring")
 equal(#requests, 1, "measurement and display share one process")
 equal(requests[1][7], "--text=ABCD", "text stays a single process argument")
@@ -422,9 +423,9 @@ layouts.fixture = { output = { width = 409600,
 } }
 files[renderer.directory .. "/layout.json"] = "fixture"
 callbacks[1]({ exitCode = 0 })
-equal(model.textWidth(measuredPair, config, 20, renderer), 260, "cap overflowing lyrics at the maximum")
+equal(renderer:source(slots[1], config).width, 400, "cache full width for text window movement only")
 defaults.text_width = 500
-equal(model.textWidth(measuredPair, config, 20, renderer), 400, "expand completely when the text fits")
+equal(renderer:display(slots[1], config, 500), "ABCD", "display the full text when the configured maximum allows it")
 equal(#requests, 1, "resizing reuses the measured layout")
 defaults.text_width = 260
 equal(renderer:display(slots[1], config, 260), "AB", "long line begins with a fitting native text window")
@@ -456,10 +457,13 @@ env.barWidget.render = function(value) renders = renders + 1; originalRender(val
 for _ = 1, 20 do env.update() end
 equal(renders, 0, "unchanged paused widget does not resubmit UI")
 
--- Exercise sizing through the widget, including the native background and cover bounds.
-local widths = { Current = 80.2, Next = 180, Long = 220, Overflow = 400 }
-local sizingRenderer = { source = function(_, slot) return { width = widths[slot.text] } end,
-    draw = function() end, close = function() end }
+-- Native layout determines short text width even if an external measurement is wrong.
+local widths = { Current = 80.2, Next = 180, Long = 220, Overflow = 400, ["Low Life"] = 1 }
+local sizingRenderer = { close = function() end }
+function sizingRenderer:display(slot, _, width)
+    self.scrolling = (widths[slot.text] or 0) > width
+    return slot.text == "Overflow" and self.scrolling and "flow" or slot.text
+end
 local originalRequire = env.require
 env.require = function(path)
     if path == "./lib/text.luau" then return { new = function() return sizingRenderer end } end
@@ -467,34 +471,38 @@ env.require = function(path)
 end
 defaults.transition, defaults.second_line = "none", "off"
 assert(loadPlugin("widget.luau", "t", env))()
-equal(find(view, "lyrics").props.width, 81, "short lyrics shrink to rounded natural width")
-equal(view.props.width, 118, "total width includes cover, gap and padding")
-equal(find(view, "progress").props.width, 118, "progress fills the widget including horizontal padding")
+equal(find(view, "lyrics").props.minWidth, 0, "short lyrics have no guessed minimum width")
+equal(view.props.width, nil, "native text determines total width with cover, gap and padding")
+equal(find(view, "progress").props.width, 0, "progress starts without an intrinsic width and stretches to the native content")
 equal(view.props.paddingH, nil, "progress has no extra left inset")
-equal(find(view, "content").props.paddingH, 4, "cover and text retain their content padding")
+equal(find(view, "content").props.paddingH, 4, "cover and text retain content padding")
+watchers.lyrics({ status = "synced", lines = lrc.parse("[00:00]Low Life") })
+equal(text("current"), "Low Life", "short title is never trimmed by an underestimated external width")
+equal(find(view, "incoming").props.width, nil, "Low Life is sized by the native font")
+equal(find(view, "label").props.maxWidth, 260, "only the configured maximum constrains the native label")
+equal(find(view, "label").props.flexGrow, 1, "native label fills its row for alignment")
 watchers.lyrics({ status = "synced", lines = lrc.parse("[00:00]Long") })
-equal(find(view, "lyrics").props.width, 220, "long lyrics expand before scrolling")
+equal(find(view, "lyrics").props.minWidth, 0, "long fitting text expands naturally")
 watchers.lyrics({ status = "synced", lines = lrc.parse("[00:00]Overflow") })
-equal(find(view, "lyrics").props.width, 260, "overflow uses the full maximum viewport")
+equal(find(view, "lyrics").props.minWidth, 260, "advancing long text retains the maximum viewport")
+equal(text("current"), "flow")
 defaults.text_width = 500
 env.onConfigChanged()
-equal(find(view, "lyrics").props.width, 400, "increasing the maximum shows the complete line")
+equal(find(view, "lyrics").props.minWidth, 0, "increasing the maximum restores natural sizing")
+equal(text("current"), "Overflow", "a fitting line is displayed in full")
+equal(find(view, "label").props.maxWidth, 500)
 defaults.second_line = "next"
 env.onConfigChanged()
 watchers.lyrics({ status = "synced", lines = lrc.parse("[00:00]Current\n[00:02]Next") })
-equal(find(view, "lyrics").props.width, 180, "dual lines use the longer row")
+equal(find(view, "lyrics").props.width, nil, "dual lines use native intrinsic widths")
+equal(find(view, "incoming").props.align, "stretch", "dual lines align within the longer native row")
 defaults.second_line = "off"
-env.onConfigChanged()
-watchers.lyrics({ status = "synced", lines = lrc.parse("[00:00]Pending") })
-equal(find(view, "lyrics").props.width, 81, "pending shaping retains the previous width")
-widths.Pending = 90
-env.onConfigChanged()
-equal(find(view, "lyrics").props.width, 90, "ready measurement updates the widget width")
-sizingRenderer.display = function(_, slot) return slot.text == "Overflow" and "flow" or slot.text end
-defaults.transition = "fade"
+defaults.text_width = 260
 env.onConfigChanged()
 watchers.lyrics({ status = "synced", source = "splayer", lines = lrc.parse("[00:00]Overflow") })
 equal(text("current"), "flow", "SPlayer lyrics pass through the native text window")
+defaults.transition = "fade"
+env.onConfigChanged()
 watchers.lyrics({ status = "synced", lines = lrc.parse("[00:00]Long") })
 equal(find(find(view, "outgoing"), "label").props.text, "flow", "fade out the visible window instead of jumping to the line beginning")
 print(string.format("Passed %d checks", checks))

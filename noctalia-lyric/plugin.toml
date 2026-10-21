@@ -1,6 +1,6 @@
 id = "pupu/noctalia-lyric"
 name = "Noctalia Lyric"
-version = "1.2.3"
+version = "1.2.4"
 plugin_api = 31
 author = "pupu"
 license = "MIT"

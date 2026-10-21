@@ -26,18 +26,6 @@ local function slotsFor(pair, config, height)
     return slots, gap, dual
 end
 
-function M.textWidth(pair, config, height, renderer)
-    if not renderer or renderer.disabled then return config("text_width") end
-    local slots = slotsFor(pair, config, height)
-    local width = 1
-    for _, slot in ipairs(slots) do
-        local source = renderer:source(slot, config)
-        if not source or not source.width then return nil end
-        width = math.max(width, math.ceil(source.width))
-    end
-    return math.min(config("text_width"), width)
-end
-
 function M.displayPair(pair, config, width, height, renderer)
     if config("second_line") ~= "off" or not renderer.display then return pair end
     local slots = slotsFor(pair, config, height)
@@ -50,8 +38,8 @@ function M.textBlock(pair, config, width, height, key, opacity)
     local slots, gap, dual = slotsFor(pair, config, height)
     local function line(slot, name)
         local text, size, color, weight, slotHeight = slot.text, slot.size, slot.color, slot.weight, slot.height
-        return ui.row({ key = name, width = width, height = slotHeight, align = "center" }, {
-            ui.label({ key = "label", text = text, width = width, maxWidth = width, maxLines = 1,
+        return ui.row({ key = name, height = slotHeight, align = "center" }, {
+            ui.label({ key = "label", text = text, flexGrow = 1, maxWidth = config("text_width"), maxLines = 1,
                 fontSize = dual and math.min(size, slotHeight) or size,
                 fontFamily = family, fontWeight = weight, baseline = "textFixedHeight",
                 textAlign = config("text_align"), color = color })
@@ -59,14 +47,14 @@ function M.textBlock(pair, config, width, height, key, opacity)
     end
     local rows = { line(slots[1], "current") }
     if dual then rows[#rows + 1] = line(slots[2], "next") end
-    return ui.column({ key = key, gap = gap, width = width, height = height, opacity = opacity,
-        align = "start", justify = "center" }, rows)
+    return ui.column({ key = key, gap = gap, minWidth = width or 0, height = height, opacity = opacity,
+        align = "stretch", justify = "center" }, rows)
 end
 
 function M.lyricLayer(pair, previous, frame, config, width, height)
-    return ui.row({ key = "lyrics", width = width, height = height, gap = -width, align = "center" }, {
+    return ui.column({ key = "lyrics", minWidth = width or 0, height = height, gap = -height, align = "stretch" }, {
         previous and M.textBlock(previous, config, width, height, "outgoing", 1 - frame.opacity)
-            or ui.box({ key = "outgoing", width = width, height = height, fill = "surface/0" }),
+            or ui.box({ key = "outgoing", width = 0, height = height, fill = "surface/0" }),
         M.textBlock(pair, config, width, height, "incoming", frame.opacity),
     })
 end

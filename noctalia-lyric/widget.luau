@@ -11,7 +11,7 @@ local function lyricState(value)
     return value and (not value.source or value.source == "mpris" or value.source == "splayer") and value or { lines = {}, status = "missing" }
 end
 local lyrics = lyricState(noctalia.state.get("lyrics"))
-local shown, previous, track, changedAt, textWidth
+local shown, previous, track, changedAt
 
 function update()
     local tr = noctalia.tr
@@ -51,15 +51,12 @@ function update()
     local height = config("content_height")
     local innerHeight = math.max(12, height - config("padding_v") * 2)
     renderer.scrolling = false
-    if not vertical then
-        textWidth = math.min(config("text_width"), view.textWidth(pair, config, innerHeight, renderer)
-            or textWidth or config("text_width"))
-    end
+    local textWidth = config("text_width")
     local displayed = not vertical and view.displayPair(pair, config, textWidth, innerHeight, renderer) or pair
     pair.displayed = displayed.first
     local interval = frame.active and 33 or (media.available and media.playing or renderer.scrolling) and 200 or 1000
     local progress = config("show_progress") and media.available and (media.duration or 0) > 0 and position / (media.duration * 1000) or 0
-    local signature = { first, displayed.first, second, color, media.cover or "", media.playing or false, media.available or false,
+    local signature = { first, displayed.first, second, color, media.cover or "", media.playing or false, media.available or false, renderer.scrolling or false,
         progress, frame.opacity, frame.x, frame.y, vertical or false, media.title or "", media.artist or "",
         lyrics.source or lyrics.status or "", noctalia.getColor(color) or "", noctalia.getColor(config("secondary_color")) or "",
         noctalia.getSetting("shell.font_family") or "" }
@@ -72,9 +69,7 @@ function update()
     renderSignature = signature
     local size = math.min(config("cover_size"), innerHeight)
     local showCover = config("show_cover") or vertical
-    local coverWidth = showCover and size or 0
     local gap = showCover and not vertical and config("cover_gap") or 0
-    local width = vertical and size or textWidth + coverWidth + gap
     local children = {}
     if showCover then
         if media.cover then
@@ -89,21 +84,22 @@ function update()
         end
     end
     if not vertical then
-        children[#children + 1] = view.lyricLayer(displayed, previous, frame, config, textWidth, innerHeight)
+        children[#children + 1] = view.lyricLayer(displayed, previous, frame, config,
+            renderer.scrolling and textWidth or nil, innerHeight)
     end
     local container = vertical and ui.column or ui.row
-    width = width + config("padding_h") * 2
-    local content = container({ key = "content", gap = gap, width = width, height = innerHeight, paddingH = config("padding_h"),
+    local content = container({ key = "content", gap = gap, height = innerHeight, paddingH = config("padding_h"),
         align = "center", opacity = config("text_opacity") }, children)
     local layers = { content }
     if config("show_progress") and not vertical and media.available and (media.duration or 0) > 0 then
-        table.insert(layers, 1, ui.progress({ key = "progress", width = width, height = innerHeight,
+        table.insert(layers, 1, ui.progress({ key = "progress", width = 0, height = innerHeight,
             progress = math.max(0, math.min(1, position / (media.duration * 1000))),
             fill = config("progress_color"), opacity = config("progress_opacity"),
             track = "primary/0", radius = config("background_radius") }))
     end
-    barWidget.render(ui.row({ key = "root", gap = -width, width = width,
-        height = height, align = "center", paddingV = config("padding_v"),
+    -- Overlay by height so native text determines the width of both layers.
+    barWidget.render(ui.column({ key = "root", gap = -innerHeight,
+        height = height, align = "stretch", paddingV = config("padding_v"),
         radius = config("background_radius"), fill = config("show_background") and config("background_color") or "surface/0" }, layers))
     local tip = media.available and (media.title .. "\n" .. media.artist .. "\n" .. first .. "\n" .. second
         .. "\n" .. tr("state." .. (lyrics.source or lyrics.status))) or first
