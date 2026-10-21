@@ -1,4 +1,7 @@
 -- Run from the project root: lua tests/run.lua
+local function loadPlugin(path, mode, env)
+    return loadfile("noctalia-lyric/" .. path, mode or "t", env or _G)
+end
 local checks = 0
 local function equal(actual, expected, message)
     checks = checks + 1
@@ -13,7 +16,7 @@ end
 local function decodeUrl(value)
     return (value:gsub("%%(%x%x)", function(hex) return string.char(tonumber(hex, 16)) end))
 end
-local lrc = dofile("lib/lrc.luau")
+local lrc = assert(loadPlugin("lib/lrc.luau"))()
 local lines = lrc.parse("\239\187\191[ar:Test]\r\n[00:02.25]Later\r\n[00:01.1][00:03.125]First\n[00:01.1]翻译\n[00:04]\n[offset:100]\n[00:99]Invalid")
 equal(#lines, 4, "multi-stamp and translation merge")
 equal(lines[1].time, 1000, "fraction and global offset")
@@ -34,7 +37,7 @@ equal(lrc.parse("[offset:-50]\n[00:01]<00:01.1>Word<00:01.2> time")[1].time, 105
 equal(lrc.parse("[00:01]<00:01.1>Word<00:01.2> time")[1].text, "Word time")
 
 local moduleEnv = setmetatable({ noctalia = { string = { urlDecode = decodeUrl } } }, { __index = _G })
-local mediaLib = assert(loadfile("lib/media.luau", "t", moduleEnv))()
+local mediaLib = assert(loadPlugin("lib/media.luau", "t", moduleEnv))()
 local function variant(kind, data) return { type = kind, data = data } end
 local function props(title, status, position, embedded, art)
     return { PlaybackStatus = variant("s", status or "Paused"), Rate = variant("d", 1), Position = variant("x", position or 1000000),
@@ -69,14 +72,14 @@ local function service()
     }
     local env = setmetatable({ noctalia = api }, { __index = _G })
     env.require = function(path)
-        local module = assert(loadfile(path, "t", env))()
+        local module = assert(loadPlugin(path, "t", env))()
         if path == "./lib/lrc.luau" then
             local parse = module.parse
             module.parse = function(text) fake.parses = (fake.parses or 0) + 1; return parse(text) end
         end
         return module
     end
-    assert(loadfile("service.luau", "t", env))()
+    assert(loadPlugin("service.luau", "t", env))()
     fake.env = env
     function fake:encode(data) self.serial = self.serial + 1; local token = "json" .. self.serial; self.json[token] = data; return token end
     function fake:reply(data, index)
@@ -206,9 +209,9 @@ env.barWidget = { setVisible = function(value) visible = value end,
     setTooltip = function(value) tooltip = value end }
 env.require = function(path)
         if path == "./media.luau" then path = "lib/media.luau" end
-        return assert(loadfile(path, "t", env))()
+        return assert(loadPlugin(path, "t", env))()
     end
-assert(loadfile("widget.luau", "t", env))()
+assert(loadPlugin("widget.luau", "t", env))()
 equal(visible, true)
 equal(view.kind, "row")
 equal(view.children[2].children[2].children[1].props.fill, "surface/0", "empty outgoing layer stays transparent")
@@ -256,7 +259,7 @@ vertical = true
 env.update()
 equal(#find(view, "content").children, 1, "vertical bar uses compact cover")
 equal(find(view, "progress"), nil, "vertical bar does not stretch a progress background")
-local model = assert(loadfile("lib/view.luau", "t", env))()
+local model = assert(loadPlugin("lib/view.luau", "t", env))()
 equal(model.position({ playing = true, positionMs = 1000, sampledAtMs = 1000, duration = 4 }, 1250, 500), 1250)
 equal(model.position({ playing = false, positionMs = 1000, sampledAtMs = 1000 }, 1250, 500), 1000)
 equal(model.position({ playing = true, positionMs = 1000, sampledAtMs = 1000 }, 10000, 500), 10000, "interpolation continues between event-driven samples")
@@ -286,7 +289,7 @@ equal(view.props.width, widthBefore, "animation does not move other bar widgets"
 equal(interval, 1000, "paused widget returns to slow ticks")
 equal(find(find(view, "incoming"), "current").children[1].props.color, "on_surface_variant", "native paused color")
 equal(find(find(view, "incoming"), "current").children[1].props.baseline, "textFixedHeight", "baseline is independent of lyric glyphs")
-local textRenderer = assert(loadfile("lib/text.luau", "t", env))()
+local textRenderer = assert(loadPlugin("lib/text.luau", "t", env))()
 equal(textRenderer.offset(0, 300, 260), 0)
 equal(textRenderer.offset(800, 300, 260), 0)
 equal(textRenderer.offset(1800, 300, 260), 28)
@@ -310,7 +313,7 @@ local renderEnv = { noctalia = {
     end,
 } }
 setmetatable(renderEnv, { __index = _G })
-local renderer = assert(loadfile("lib/text.luau", "t", renderEnv))().new()
+local renderer = assert(loadPlugin("lib/text.luau", "t", renderEnv))().new()
 local slots = { { text = "Long lyric 中文 & <text>", size = 13, color = "on_surface", weight = "medium", height = 20 } }
 local function config(key) return defaults[key] end
 local function finish(width, height, baseline)
@@ -376,7 +379,7 @@ env.require = function(path)
     return originalRequire(path)
 end
 defaults.transition, defaults.second_line = "none", "off"
-assert(loadfile("widget.luau", "t", env))()
+assert(loadPlugin("widget.luau", "t", env))()
 equal(find(view, "lyrics").props.width, 81, "short lyrics shrink to rounded natural width")
 equal(view.props.width, 118, "total width includes cover, gap and padding")
 equal(find(view, "progress").props.width, 118, "progress fills the widget including horizontal padding")

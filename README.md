@@ -1,201 +1,129 @@
 # Noctalia Lyric
 
-用于 Noctalia v5 状态栏的 MPRIS 歌词插件。专辑封面位于左侧，歌词位于右侧，支持单行滚动、双行显示、切句动效和背景播放进度。
+在 Noctalia 状态栏里查看当前歌词、专辑封面和播放进度。
 
-**歌词由播放器提供。** 播放器需要通过 MPRIS `xesam:asText` 提供带时间戳的歌词；没有同步歌词时，组件直接显示歌名和歌手，不查询其他歌词来源。
+歌词跟随播放器逐句切换；短句自动收缩，长句优先完整展开，超过设定宽度后自动滚动。点击组件即可打开 Noctalia 原生媒体卡片，继续控制播放。
+
+| 插件 | 信息 |
+| --- | --- |
+| 名称 | Noctalia Lyric |
+| 插件 ID | `pupu/noctalia-lyric` |
+| 状态栏组件 | `pupu/noctalia-lyric:bar` |
+| 兼容性 | Noctalia v5，插件 API 31 及以上；已在 5.3.0 验证 |
+| 界面语言 | 简体中文、English |
 
 ## 功能
 
-- **显示**：封面、当前句与下一句，或歌名与歌手；支持横栏和竖栏。
-- **布局**：固定文字基线，宽度随内容伸缩，可调最大宽度、字号、行距、边距、颜色与封面圆角。
-- **动效**：淡入淡出、向上滑入、向左滑入；超长单行自动滚动。
-- **进度**：可开关的背景播放进度，支持颜色和透明度设置。
-- **交互**：左键打开原生媒体卡片，中键播放／暂停，右键打开设置。
-- **更新**：共享 D-Bus 信号监听；暂停时不周期性启动查询进程。
-
-界面设置提供中文和英文。外层胶囊、栏高和组件缩放由 Noctalia 管理。
-
-## 运行要求
-
-| 项目 | 要求 |
-| --- | --- |
-| Noctalia | 已在 **5.3.0** 验证；要求插件 API **31 或更高** |
-| 播放器 | 支持 MPRIS；同步歌词还需要带时间戳的 `xesam:asText` |
-| `busctl` | 由 systemd 提供，用于 D-Bus 监听和状态读取 |
-| `pango-view` | 由 Pango 提供，用于文字排版 |
-
-不适用于 Noctalia v4／Quickshell。无需 `playerctl`，也不需要歌词服务 API 密钥。
+- **封面与歌词**：左侧专辑封面，右侧当前歌词；可选择单行、当前句与下一句，或歌曲信息。
+- **自适应宽度**：按文字长度调整组件宽度；可设置最大歌词宽度，超长单行自动滚动。
+- **切句动效**：淡入淡出、向上滑入、向左滑入，也可关闭。
+- **背景进度**：用胶囊背景中的填充显示播放进度，支持开关、颜色和透明度调整。
+- **外观设置**：字号、行距、边距、封面尺寸、圆角和颜色均可调整；竖向状态栏使用紧凑封面显示。
 
 ## 安装
 
-本仓库为私有仓库。另一台电脑需要登录具有仓库访问权限的 GitHub 账号。
+### 环境要求
 
-### 1. 准备依赖
+- Noctalia v5，支持插件 API 31 或更高。
+- 支持 MPRIS 的音乐播放器。**同步歌词还需要播放器通过 MPRIS 提供带时间戳的歌词**，详见[歌词支持](#歌词支持)。
+- `git`、`busctl`、`pango-view`。其中 `busctl` 通常由 systemd 提供，`pango-view` 由 Pango 提供。
 
-Arch Linux 可安装：
+Arch Linux 可安装依赖：
 
 ```sh
-sudo pacman -S --needed git github-cli pango
+sudo pacman -S --needed git pango
 ```
 
-`busctl` 由系统的 systemd 软件包提供。其他发行版请安装对应软件包，并确认以下命令均能找到程序：
+### 添加插件源
+
+1. 打开 **Noctalia 设置 → 插件 → 添加插件源**，选择 **Git 仓库**。
+2. 名称填写 `NoctaliaLyric`，仓库地址填写：
+
+   ```text
+   https://github.com/Lemonadepu21/NoctaliaLyric.git
+   ```
+
+3. 在该来源中找到 **Noctalia Lyric**，启用插件。
+4. 打开 **设置 → 状态栏 → 添加组件**，添加 **Noctalia Lyric / bar**。
+
+播放一首歌曲后，组件会显示封面与歌词或歌曲信息。默认在没有播放器时隐藏。
+
+也可以通过命令添加来源并启用，再到状态栏设置中添加组件：
 
 ```sh
-command -v busctl pango-view
-noctalia --version
-```
-
-### 2. 克隆并启用
-
-先完成 GitHub 登录：
-
-```sh
-gh auth login
-gh auth setup-git
-```
-
-将仓库克隆到 Noctalia 的插件目录：
-
-```sh
-plugin_dir="${XDG_DATA_HOME:-$HOME/.local/share}/noctalia/plugins/noctalia-lyric"
-mkdir -p "$(dirname "$plugin_dir")"
-gh repo clone Lemonadepu21/NoctaliaLyric "$plugin_dir"
+noctalia msg plugins source add NoctaliaLyric git https://github.com/Lemonadepu21/NoctaliaLyric.git
 noctalia msg plugins enable pupu/noctalia-lyric
 ```
 
-如果该目录已经存在，请使用下方的[更新步骤](#更新)，不要覆盖原目录。
+安装方式遵循 [Noctalia 插件说明](https://docs.noctalia.dev/noctalia/plugins/)。
 
-### 3. 添加状态栏组件
+## 使用
 
-打开 **Noctalia 设置 → 状态栏 → 添加组件**，选择 **Noctalia Lyric / bar**，再调整位置与外观。
-
-默认在没有可用播放器时隐藏。初次测试可先启动播放器，再播放或暂停一首歌曲。
-
-## 操作
-
-| 操作 | 行为 |
+| 操作 | 功能 |
 | --- | --- |
-| 左键 | 打开／关闭 Noctalia 原生媒体卡片 |
-| 中键 | 播放／暂停 |
-| 右键 | 打开组件设置 |
-| 悬停 | 查看完整歌词、歌曲信息与歌词状态 |
+| 左键点击 | 打开或关闭原生媒体卡片 |
+| 中键点击 | 播放或暂停 |
+| 右键点击 | 打开组件设置 |
+| 悬停 | 查看完整歌词与歌曲信息 |
 
-原生媒体卡片和中键操作使用 **Noctalia 当前选中的播放器**。插件的 `player` 筛选仅影响组件显示，不改变原生媒体卡片的播放器选择。
+播放控制跟随 Noctalia 当前选中的播放器。插件设置中的播放器筛选只决定组件显示哪一个播放器。
 
-## 配置
+### 调整显示
 
-插件设置由所有组件共享；右键打开的外观设置对各组件独立生效。
+右键组件可调整外观。常用设置包括：
 
-### 播放器设置
+| 设置 | 作用 |
+| --- | --- |
+| 歌词最大宽度 | 短句收缩、长句展开的上限；不含封面与边距 |
+| 第二行 | 显示下一句、歌手，或关闭以使用单行 |
+| 单行／双行字号 | 分别控制单行、双行当前句与第二行的字号 |
+| 内容高度与行距 | 调整双行的密度和上下留白 |
+| 切句动效 | 选择切换效果与持续时间 |
+| 背景进度 | 开关进度填充，调整颜色与透明度 |
+| 歌词时间偏移 | 调整歌词同步；正值提前，负值延后，单位为毫秒 |
 
-| 参数 | 默认值 | 说明 |
-| --- | --- | --- |
-| `player` | 空 | 优先显示正在播放的播放器；可指定实例名或播放器前缀 |
-| `poll_interval` | `30000` | 仅播放时校准位置，单位 ms；范围 10000–120000 |
+在 **设置 → 插件 → Noctalia Lyric** 中可选择播放器。完整参数见[设置参考](docs/settings.md)。
 
-`poll_interval` 是低频校准间隔，不是画面刷新间隔。暂停、切歌、跳转和播放器退出通过 D-Bus 信号处理；旧配置中小于 10000 的值按 10000 处理。
+## 歌词支持
 
-### 常用外观设置
+Noctalia Lyric 使用播放器经由 MPRIS 提供的歌词（`xesam:asText`），支持带 LRC 时间戳的逐句同步。
 
-| 参数 | 默认值 | 说明 |
-| --- | --- | --- |
-| `text_width` | `260` | 歌词区域最大宽度；先完整展示，超过上限的单行再滚动 |
-| `second_line` | `next` | `next` 下一句、`metadata` 歌手、`off` 单行 |
-| `font_size` | `13` | 单行字号 |
-| `dual_font_size` / `secondary_font_size` | `10` / `8` | 双行当前句与第二行字号 |
-| `content_height` | `22` | 固定内容高度，封面和双行字号自动适配 |
-| `line_gap` | `0` | 双行间距 |
-| `show_progress` | `true` | 背景播放进度开关 |
-| `transition` | `fade` | `none`、`fade`、`slide_up`、`slide_left` |
+**播放器能显示歌词，不代表它会通过 MPRIS 向其他应用提供歌词。** 若播放器没有提供同步歌词，组件会显示歌名与歌手；这时仍可使用封面、播放进度和媒体控制。
 
-尺寸使用逻辑像素。短句自动收缩，长句展开至最大宽度；双行按较长一行确定宽度，封面、间距和左右边距另外计入总宽度。内容高度应适合当前状态栏胶囊；切句动效仅移动歌词。
+歌词仅从播放器读取，不进行联网匹配，不扫描本地歌词文件，也不调用独立的播放器歌词接口。逐字高亮暂不支持。专辑封面使用播放器提供的地址；远程封面可能需要网络连接。
 
-<details>
-<summary>其他外观参数</summary>
+## 更新与移除
 
-| 参数 | 默认值 | 说明 |
-| --- | --- | --- |
-| `show_cover` | `true` | 显示封面 |
-| `cover_size` / `cover_radius` | `28` / `6` | 封面大小与圆角 |
-| `cover_gap` | `9` | 封面与文字间距 |
-| `font_family` | 空 | 跟随栏字体，或填写系统字体名 |
-| `font_weight` | `medium` | `normal`、`medium`、`semibold`、`bold` |
-| `text_align` | `start` | `start`、`center`、`end` |
-| `text_color` / `secondary_color` | `on_surface` / `on_surface_variant` | 当前句与第二行颜色 |
-| `show_background` | `false` | 显示组件内部背景 |
-| `background_color` / `background_radius` | `surface_variant` / `12` | 内部背景颜色与圆角 |
-| `padding_h` / `padding_v` | `4` / `1` | 内容水平与垂直内边距；进度填充覆盖水平内边距 |
-| `time_offset` | `0` | 歌词时间偏移，单位 ms；正数提前，负数延后 |
-| `hide_idle` / `hide_paused` | `true` / `false` | 无播放器／暂停时隐藏 |
-| `dim_paused` | `true` | 暂停时使用柔和文字色 |
-| `text_opacity` | `1.0` | 文字和封面不透明度 |
-| `progress_color` / `progress_opacity` | `primary` / `0.25` | 进度填充颜色与不透明度 |
-| `transition_duration` | `240` | 切句动效时长，范围 80–600 ms |
+在 **设置 → 插件** 中更新 `NoctaliaLyric` 来源。已启用的插件会随来源更新重新加载。
 
-</details>
-
-## 在另一台电脑上测试
-
-1. 确认插件已启用、组件已添加，播放器出现在 Noctalia 原生媒体卡片中。
-2. 检查封面、歌名与歌手，以及左键、中键和右键操作。
-3. 播放、暂停、拖动进度、切换歌曲，再退出播放器，检查进度与显示状态。
-4. 如果播放器提供同步歌词，检查当前句、下一句、时间偏移和切句动效。
-5. 分别测试单行和双行；使用较长的歌词检查自动滚动。
-
-**只有歌曲信息、没有歌词，不一定是插件故障。** 支持 MPRIS 不等于提供歌词。可先查看播放器的总线名：
+命令行更新：
 
 ```sh
-busctl --user list
+noctalia msg plugins update NoctaliaLyric
 ```
 
-找到 `org.mpris.MediaPlayer2.` 开头的名称，再读取其元数据。下面以 VLC 为例，请替换成实际总线名：
+停用插件可停止运行；需要移除时，先删除状态栏组件，再移除插件源。
 
-```sh
-busctl --user get-property \
-  org.mpris.MediaPlayer2.vlc \
-  /org/mpris/MediaPlayer2 \
-  org.mpris.MediaPlayer2.Player Metadata
-```
+## 常见问题
 
-没有 `xesam:asText`，或该字段不含 LRC 时间戳时，插件会回退显示歌曲信息。本机测试的 SPlayer 3.1.1 未通过该字段提供歌词，不能据此期待其他电脑上的 SPlayer 一定显示同步歌词。
+**插件已启用，但状态栏里没有组件？** 还需要在状态栏设置中添加组件。若已经添加，请确认播放器已启动；默认无播放器时隐藏。
 
-需要重新读取状态时：
+**有歌名却没有歌词？** 播放器需要通过 `xesam:asText` 提供带时间戳的歌词。仅提供歌名、歌手和进度的播放器也能使用本插件，但无法显示同步歌词。
 
-```sh
-noctalia msg plugin pupu/noctalia-lyric:lyrics all refresh
-```
+**双行文字被裁切？** 增大内容高度，或减小双行字号与行距；外层胶囊高度由 Noctalia 的状态栏设置控制。
 
-反馈问题时，请附上 Noctalia 版本、播放器名称和版本、问题复现步骤，以及是否存在带时间戳的 `xesam:asText`。
+## 反馈与开发
 
-## 更新
+欢迎通过 [Issues](https://github.com/Lemonadepu21/NoctaliaLyric/issues) 反馈问题。请附上 Noctalia 与播放器版本、复现步骤；显示问题可附组件截图。
 
-```sh
-plugin_dir="${XDG_DATA_HOME:-$HOME/.local/share}/noctalia/plugins/noctalia-lyric"
-git -C "$plugin_dir" pull --ff-only
-noctalia msg plugins disable pupu/noctalia-lyric
-noctalia msg plugins enable pupu/noctalia-lyric
-```
-
-若修改过本地代码，先处理本地修改，再更新。停用并重新启用可以同时重新加载代码与插件设置定义。
-
-## 数据来源与限制
-
-- 歌词仅来自播放器的 MPRIS 元数据，不扫描本地 LRC、不访问播放器 HTTP 接口，也不查询在线歌词。
-- 仅支持逐句同步；逐字时间标签不会生成逐字高亮。详情见[逐字歌词能力边界](docs/word-lyrics.md)。
-- 封面来自 `mpris:artUrl`。本地文件直接读取；远程封面会按播放器提供的地址下载，独立于歌词处理。
-- 静态画面会复用缓存；滚动和滑入仍有 SVG 帧更新成本。实测范围与数据见[性能验证](docs/performance.md)，不代表所有设备或动画场景的占用。
-- 1.1.x 的本地目录、SPlayer HTTP 和在线歌词选项已移除。升级后可删除旧配置中的 `lyrics_directory`、`splayer_lyrics`、`splayer_port`、`online_lyrics`。
-
-## 开发检查
-
-在仓库根目录执行：
+仓库根目录可运行以下检查：
 
 ```sh
 lua tests/run.lua
-noctalia plugins lint .
+noctalia plugins lint noctalia-lyric
 ```
 
-测试使用 Lua 运行与 Luau 兼容的代码，覆盖 MPRIS 事件、缓存、读取竞态、资源清理和布局行为；仍需在目标设备上验证实际显示与交互。
+实现与验证资料：[性能记录](docs/performance.md) · [逐字歌词支持范围](docs/word-lyrics.md)。
 
 ## 许可证
 

@@ -1,0 +1,11 @@
+[[plugin]]
+id = "pupu/noctalia-lyric"
+name = "Noctalia Lyric"
+version = "1.2.2"
+plugin_api = 31
+author = "pupu"
+license = "MIT"
+icon = "music"
+description = "Album art and synchronized lyrics for the Noctalia bar."
+tags = ["media", "lyrics", "bar"]
+dependencies = ["busctl", "pango-view"]
