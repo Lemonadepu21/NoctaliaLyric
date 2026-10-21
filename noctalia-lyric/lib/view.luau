@@ -6,8 +6,7 @@ function M.motion(mode, elapsed, duration)
     if mode == "none" or elapsed >= duration then return { opacity = 1, x = 0, y = 0, active = false } end
     local t = math.max(0, elapsed / duration)
     local eased = 1 - (1 - t) ^ 3
-    return { opacity = eased, x = mode == "slide_left" and 8 * (1 - eased) or 0,
-        y = mode == "slide_up" and 4 * (1 - eased) or 0, active = true }
+    return { opacity = eased, x = 0, y = 0, active = true }
 end
 
 local function slotsFor(pair, config, height)
@@ -39,7 +38,13 @@ function M.textWidth(pair, config, height, renderer)
     return math.min(config("text_width"), width)
 end
 
-function M.textBlock(pair, config, width, height, key, opacity, frame, renderer)
+function M.displayPair(pair, config, width, height, renderer)
+    if config("second_line") ~= "off" or not renderer.display then return pair end
+    local slots = slotsFor(pair, config, height)
+    return { first = renderer:display(slots[1], config, width), second = pair.second, color = pair.color }
+end
+
+function M.textBlock(pair, config, width, height, key, opacity)
     local family = config("font_family")
     if family == "" then family = nil end
     local slots, gap, dual = slotsFor(pair, config, height)
@@ -52,20 +57,17 @@ function M.textBlock(pair, config, width, height, key, opacity, frame, renderer)
                 textAlign = config("text_align"), color = color })
         })
     end
-    local image = renderer and renderer:draw(slots, config, width, height, gap, frame, not dual, key)
-    if image then return ui.image({ key = key, path = image, width = width, height = height, opacity = opacity, fit = "contain" }) end
     local rows = { line(slots[1], "current") }
     if dual then rows[#rows + 1] = line(slots[2], "next") end
     return ui.column({ key = key, gap = gap, width = width, height = height, opacity = opacity,
         align = "start", justify = "center" }, rows)
 end
 
-function M.lyricLayer(pair, previous, frame, config, width, height, renderer)
-    -- Keep both layers and their bounds stable; only glyphs inside the SVG move.
+function M.lyricLayer(pair, previous, frame, config, width, height)
     return ui.row({ key = "lyrics", width = width, height = height, gap = -width, align = "center" }, {
-        previous and M.textBlock(previous, config, width, height, "outgoing", 1 - frame.opacity,
-            nil, renderer) or ui.box({ key = "outgoing", width = width, height = height, fill = "surface/0" }),
-        M.textBlock(pair, config, width, height, "incoming", frame.opacity, frame, renderer),
+        previous and M.textBlock(previous, config, width, height, "outgoing", 1 - frame.opacity)
+            or ui.box({ key = "outgoing", width = width, height = height, fill = "surface/0" }),
+        M.textBlock(pair, config, width, height, "incoming", frame.opacity),
     })
 end
 

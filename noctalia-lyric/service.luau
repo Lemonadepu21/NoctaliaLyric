@@ -1,5 +1,6 @@
 local mediaLib = require("./lib/media.luau")
 local lrc = require("./lib/lrc.luau")
+local splayer = require("./lib/splayer.luau")
 local players, removed, current = {}, {}, { available = false }
 local currentKey, lyricText, coverPath, coverUrl, ownedCover
 local cache, cacheOrder = {}, {}
@@ -7,10 +8,35 @@ local listening, closed, retryAt, retryDelay, scanning = false, false, 0, 1000, 
 local lastCalibration, coverSequence, scanAttempts, scanRetryAt = 0, 0, 0, nil
 local dataDir = noctalia.pluginDataDir()
 local publish, refresh, scan
+local pendingLyrics, httpBusy
+local splayerEnabled, splayerPort = noctalia.getConfig("splayer_lyrics"), noctalia.getConfig("splayer_port")
+
+local function pumpLyrics()
+    local request = pendingLyrics
+    if closed or httpBusy or not request or noctalia.nowMs() < request.at then return end
+    if request.key ~= currentKey or cache[request.key] ~= request.cached then pendingLyrics = nil; return end
+    pendingLyrics, httpBusy = nil, true
+    local accepted = noctalia.http({ url = "http://127.0.0.1:" .. noctalia.getConfig("splayer_port") .. "/api/control/song-info" }, function(response)
+        httpBusy = false
+        if closed or currentKey ~= request.key or cache[request.key] ~= request.cached then return end
+        local body = response.ok and response.status == 200 and type(response.body) == "string"
+            and #response.body <= 1048576 and noctalia.json.decode(response.body)
+        local lines, waiting = splayer.parse(type(body) == "table" and body.code == 200 and body.data or nil, request.media)
+        if #lines > 0 then
+            request.cached.value = { lines = lines, status = "synced", source = "splayer" }
+            noctalia.state.set("lyrics", request.cached.value)
+        elseif waiting and request.attempt < 4 then
+            request.attempt, request.at = request.attempt + 1, noctalia.nowMs() + 2000
+            pendingLyrics = request
+        end
+    end)
+    if not accepted then httpBusy = false end
+end
 
 local function lyrics(media, key, text)
     if key == currentKey and text == lyricText then return end
     currentKey, lyricText = key, text
+    pendingLyrics = nil
     local cached = key and cache[key]
     if not cached or cached.text ~= text then
         local lines = #text > 0 and #text <= 1048576 and lrc.parse(text) or {}
@@ -20,8 +46,12 @@ local function lyrics(media, key, text)
             cache[key] = cached
             if #cacheOrder > 32 then cache[table.remove(cacheOrder, 1)] = nil end
         end
+        if key and #cached.value.lines == 0 and mediaLib.matches(media.bus, "splayer") and noctalia.getConfig("splayer_lyrics") then
+            pendingLyrics = { key = key, cached = cached, media = media, attempt = 1, at = noctalia.nowMs() }
+        end
     end
     noctalia.state.set("lyrics", cached.value)
+    pumpLyrics()
 end
 
 publish = function()
@@ -184,6 +214,7 @@ end
 function update()
     noctalia.setUpdateInterval(1000)
     if closed then return end
+    pumpLyrics()
     local now = noctalia.nowMs()
     if not listening and now >= retryAt then
         if not noctalia.commandExists("busctl") then
@@ -208,7 +239,14 @@ function update()
     end
 end
 
-function onConfigChanged() publish() end
+function onConfigChanged()
+    local enabled, port = noctalia.getConfig("splayer_lyrics"), noctalia.getConfig("splayer_port")
+    if enabled ~= splayerEnabled or port ~= splayerPort then
+        splayerEnabled, splayerPort = enabled, port
+        currentKey, lyricText, cache, cacheOrder = nil, nil, {}, {}
+    end
+    publish()
+end
 function onIpc(event)
     if event == "refresh" then currentKey, lyricText, cache, cacheOrder = nil, nil, {}, {}; for _, node in pairs(players) do refresh(node) end end
 end

@@ -1,4 +1,4 @@
--- Pango shapes once per line; a clipped SVG moves glyphs without moving native bar layers.
+-- Pango measures once per line; the UI always renders native labels.
 local M = {}
 local weights = { normal = "Normal", medium = "Medium", semibold = "Semi-Bold", bold = "Bold" }
 
@@ -9,31 +9,45 @@ function M.offset(elapsed, width, viewport)
     return math.min(distance, math.max(0, (phase - 800) * 0.028))
 end
 
+function M.window(source, text, width, elapsed)
+    if source.width <= width or not source.stops then return text end
+    local distance = source.width - width
+    local offset = M.offset(elapsed, source.width, width)
+    local first, last = 1, #source.stops - 1
+    for i, stop in ipairs(source.stops) do
+        if i == #source.stops then break end
+        if stop.x <= offset or offset == distance and source.stops[first].x < distance then first = i end
+        if stop.x >= offset then break end
+    end
+    local start = source.stops[first]
+    for i = first + 1, #source.stops do
+        if source.stops[i].x - start.x > width then last = math.max(first, i - 2); break end
+    end
+    return text:sub(start.byte, source.stops[last + 1] and source.stops[last + 1].byte - 1 or #text)
+end
+
 function M.new(onReady)
-    local self = { cache = {}, order = {}, metrics = {}, files = {}, sequence = 0, scrolling = false }
+    local self = { cache = {}, order = {}, scrolling = false }
     local token = tostring({}):gsub("[^%w]", "") .. "-" .. tostring(noctalia.nowMs())
     self.directory = "/tmp/noctalia-lyric-" .. token
     if not noctalia.commandExists("pango-view") or not noctalia.mkdirAll(self.directory) then self.disabled = true end
 
     function self:source(slot, config)
+        if self.disabled or self.closed then return nil end
         local family = config("font_family")
         if family == "" then family = noctalia.getSetting("shell.font_family") or "sans-serif" end
-        local color = noctalia.getColor(slot.color)
-        if not color then return nil end
         local font = family .. " " .. weights[slot.weight] .. " " .. slot.size
-        local key = slot.text .. "\31" .. font .. "\31" .. color
-        local cached = self.cache[key]
-        if cached then return cached end
-        if self.busy or self.closed then return nil end
-        cached = {}
+        local key = slot.text .. "\31" .. font
+        if self.cache[key] then return self.cache[key] end
+        if self.busy then return nil end
+        local cached = {}
         self.cache[key] = cached
         self.order[#self.order + 1] = key
         if #self.order > 12 then self.cache[table.remove(self.order, 1)] = nil end
         self.busy = true
-        local path = self.directory .. "/source.svg"
-        local accepted = noctalia.runAsync({ "pango-view", "--no-display", "--pixels", "--margin=0",
-            "--single-par", "--font=" .. font, "--foreground=" .. color, "--background=#00000000",
-            "--text=" .. slot.text, "--output=" .. path }, function(result)
+        local path = self.directory .. "/layout.json"
+        local accepted = noctalia.runAsync({ "pango-view", "--no-display", "--pixels", "--margin=0", "--single-par",
+            "--font=" .. font, "--text=" .. slot.text, "--serialize-to=" .. path }, function(result)
             self.busy = false
             if self.closed then
                 noctalia.removeFile(path)
@@ -41,91 +55,46 @@ function M.new(onReady)
                 return
             end
             if result.exitCode ~= 0 or result.timedOut or result.stdoutTruncated then return end
-            local svg = noctalia.readFile(path)
-            if not svg then return end
-            local w, h = svg:match('viewBox="0 0 ([%d.]+) ([%d.]+)"')
-            local body = svg:match('<svg[^>]*>(.*)</svg>')
-            if not w or not body then return end
-            cached.width, cached.height = tonumber(w), tonumber(h)
-            cached.body = body
-            cached.rows = {}
-            cached.baseline = tonumber(body:match('<use[^>]- y="([%d.]+)"')) or cached.height * 0.8
-            self.metrics[font] = self.metrics[font] or cached.baseline - cached.height / 2
-            cached.anchor = self.metrics[font]
+            local raw = noctalia.readFile(path)
+            local layout = raw and noctalia.json.decode(raw)
+            local output = type(layout) == "table" and layout.output
+            if type(output) ~= "table" or type(output.width) ~= "number" or not (output.width >= 0 and output.width < 1e12) then return end
+            local advances = {}
+            for _, line in ipairs(output.lines or {}) do
+                for _, run in ipairs(line.runs or {}) do
+                    for _, glyph in ipairs(run.glyphs or {}) do
+                        local byte = run.offset + glyph["log-cluster"]
+                        advances[byte] = (advances[byte] or 0) + glyph.width / 1024
+                    end
+                end
+            end
+            local stops, x, index = {}, 0, 1
+            local ok = pcall(function()
+                for byte in utf8.codes(slot.text) do
+                    local attr = output["log-attrs"] and output["log-attrs"][index]
+                    if byte == 1 or attr and attr["cursor-position"] then stops[#stops + 1] = { byte = byte, x = x } end
+                    x, index = x + (advances[byte - 1] or 0), index + 1
+                end
+            end)
+            stops[#stops + 1] = { byte = #slot.text + 1, x = output.width / 1024 }
+            cached.width, cached.stops = output.width / 1024, ok and stops or nil
             if onReady then onReady() end
         end, 2000)
         if not accepted then self.busy = false end
         return cached
     end
 
-    function self:draw(slots, config, width, height, gap, frame, single, layer)
-        if self.disabled or self.closed then return nil end
-        if layer == "incoming" and self.current ~= slots[1].text then
-            self.current, self.scrollStarted = slots[1].text, noctalia.nowMs()
-        end
-        local sources = {}
-        for i, slot in ipairs(slots) do
-            sources[i] = self:source(slot, config)
-            if not sources[i] or not sources[i].body then
-                return self.last and self.last[layer] and self.last[layer].path or nil
-            end
-        end
-        local offsets, signature = {}, { tostring(width), tostring(height), tostring(gap), config("text_align") }
-        for i, slot in ipairs(slots) do
-            local source = sources[i]
-            local x = 0
-            if single and source.width > width and layer == "incoming" then
-                x = -M.offset(noctalia.nowMs() - self.scrollStarted, source.width, width)
-                self.scrolling = true
-            elseif source.width < width then
-                x = config("text_align") == "center" and (width - source.width) / 2
-                    or config("text_align") == "end" and width - source.width or 0
-            end
-            offsets[i] = x
-            for _, value in ipairs({ tostring(source), slot.height, frame and frame.x or 0, frame and frame.y or 0, string.format("%.2f", x) }) do
-                signature[#signature + 1] = tostring(value)
-            end
-        end
-        local input = table.concat(signature, "\31")
-        self.last = self.last or {}
-        if self.last[layer] and self.last[layer].input == input then return self.last[layer].path end
-        local y = (height - slots[1].height - (slots[2] and slots[2].height + gap or 0)) / 2
-        local parts = { string.format('<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="%s" height="%s" viewBox="0 0 %s %s">', width, height, width, height),
-            string.format('<defs><clipPath id="viewport"><rect width="%s" height="%s"/></clipPath></defs><g clip-path="url(#viewport)">', width, height) }
-        for i, slot in ipairs(slots) do
-            local source = sources[i]
-            local x = offsets[i]
-            source.rows[i] = source.rows[i] or source.body:gsub('glyph', 'row' .. i .. 'glyph')
-            -- Separate nested SVG documents keep Pango's glyph IDs independent between rows.
-            parts[#parts + 1] = string.format('<svg x="%.2f" y="%.2f" width="%s" height="%s" overflow="visible">%s</svg>',
-                x + (frame and frame.x or 0), y + slot.height / 2 + source.anchor - source.baseline + (frame and frame.y or 0),
-                source.width, source.height, source.rows[i])
-            y = y + slot.height + gap
-        end
-        parts[#parts + 1] = '</g></svg>'
-        local svg = table.concat(parts)
-        self.sequence = self.sequence + 1
-        local path = self.directory .. "/frame-" .. self.sequence .. ".svg"
-        if not noctalia.writeFile(path, svg) then return nil end
-        self.files[#self.files + 1] = path
-        if #self.files > 16 then
-            local old = table.remove(self.files, 1)
-            local other = self.last[layer == "incoming" and "outgoing" or "incoming"]
-            if other and old == other.path then
-                self.files[#self.files + 1] = old
-                old = table.remove(self.files, 1)
-            end
-            noctalia.removeFile(old)
-        end
-        self.last[layer] = { input = input, path = path }
-        return path
+    function self:display(slot, config, width)
+        if self.current ~= slot.text then self.current, self.started = slot.text, noctalia.nowMs() end
+        local source = self:source(slot, config)
+        if not source or not source.width then return slot.text end
+        if source.width > width then self.scrolling = true end
+        return M.window(source, slot.text, width, noctalia.nowMs() - self.started)
     end
 
     function self:close()
         self.closed = true
-        for _, path in ipairs(self.files) do noctalia.removeFile(path) end
-        noctalia.removeFile(self.directory .. "/source.svg")
-        -- removeFile accepts files only; remove the now-empty private temporary directory.
+        noctalia.removeFile(self.directory .. "/layout.json")
         noctalia.runAsync({ "rmdir", self.directory })
     end
     return self

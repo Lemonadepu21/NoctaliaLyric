@@ -9,7 +9,7 @@
   "settings.cover_radius.label": "Cover corner radius",
   "settings.cover_gap.label": "Cover-to-lyrics gap",
   "settings.text_width.label": "Maximum lyrics width",
-  "settings.text_width.description": "Resize to fit the text up to this limit, then scroll overflowing single lines. Hover for the full text.",
+  "settings.text_width.description": "Resize to fit up to this limit. Longer single lines advance by whole characters to reveal the ending. Hover for the full text.",
   "settings.second_line.label": "Second line",
   "options.second_line.next": "Next lyric",
   "options.second_line.metadata": "Artist",
@@ -61,10 +61,13 @@
   "settings.transition.label": "Lyric transition",
   "options.transition.none": "Off",
   "options.transition.fade": "Crossfade",
-  "options.transition.slide_up": "Slide up",
-  "options.transition.slide_left": "Slide left",
   "settings.transition_duration.label": "Transition duration (ms)",
   "state.mpris": "MPRIS local lyrics",
   "settings.dual_font_size.label": "Two-line current font size",
-  "settings.dual_font_size.description": "Separate from the single-line font. Compact rows are centered together."
+  "settings.dual_font_size.description": "Separate from the single-line font. Compact rows are centered together.",
+  "settings.splayer_lyrics.label": "SPlayer local lyrics fallback",
+  "settings.splayer_lyrics.description": "When MPRIS has no lyrics, read and cache lyrics from the local SPlayer API on track changes. No online lookup.",
+  "settings.splayer_port.label": "SPlayer local API port",
+  "settings.splayer_port.description": "The SPlayer API port. Connects only to 127.0.0.1.",
+  "state.splayer": "SPlayer local lyrics"
 }

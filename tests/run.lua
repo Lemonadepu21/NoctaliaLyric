@@ -56,14 +56,24 @@ equal(mediaLib.filePath("file:///music/Hello%20World.jpg"), "/music/Hello World.
 equal(mediaLib.filePath("file://remote/path.jpg"), nil)
 equal(mediaLib.filePath("file:///music/%00.jpg"), nil)
 local name, owner = mediaLib.prefix .. "test.instance", ":1.10"
-local function service()
-    local fake = { now = 1000, requests = {}, state = {}, publications = {}, downloads = {}, removed = {}, streams = 0, json = {}, serial = 0 }
+local function service(playerName)
+    local fake = { now = 1000, requests = {}, httpRequests = {}, httpCount = 0, state = {}, publications = {}, downloads = {}, removed = {}, streams = 0, json = {}, serial = 0 }
     local api = {
-        nowMs = function() return fake.now end, getConfig = function(k) return k == "player" and (fake.filter or "") or 30000 end,
+        nowMs = function() return fake.now end, getConfig = function(k)
+            if k == "player" then return fake.filter or "" end
+            if k == "splayer_lyrics" then return fake.splayerEnabled ~= false end
+            if k == "splayer_port" then return fake.port or 25884 end
+            return 30000
+        end,
         pluginDataDir = function() return "/tmp/noctalia-lyric-test" end, commandExists = function() return true end,
         setUpdateInterval = function() end, fileExists = function() return true end,
         runStream = function(cmd, cb) fake.streams = fake.streams + 1; fake.stream = cb; fake.streamCommand = cmd; return true end,
         runAsync = function(argv, cb) fake.requests[#fake.requests + 1] = { argv = argv, callback = cb }; return true end,
+        http = function(request, cb)
+            fake.httpCount = fake.httpCount + 1
+            fake.httpRequests[#fake.httpRequests + 1] = { url = request.url, callback = cb }
+            return true
+        end,
         download = function(url, path, cb) fake.downloads[#fake.downloads + 1] = { url = url, path = path, callback = cb }; return true end,
         removeFile = function(path) fake.removed[#fake.removed + 1] = path end,
         state = { get = function(k) return fake.state[k] end, set = function(k,v)
@@ -77,6 +87,10 @@ local function service()
             local parse = module.parse
             module.parse = function(text) fake.parses = (fake.parses or 0) + 1; return parse(text) end
         end
+        if path == "./lib/splayer.luau" then
+            local parse = module.parse
+            module.parse = function(data, media) fake.splayerParses = (fake.splayerParses or 0) + 1; return parse(data, media) end
+        end
         return module
     end
     assert(loadPlugin("service.luau", "t", env))()
@@ -85,6 +99,10 @@ local function service()
     function fake:reply(data, index)
         local request = table.remove(self.requests, index or 1); assert(request, "pending request")
         request.callback({ exitCode = 0, stdout = self:encode(data) }); return request
+    end
+    function fake:httpReply(data)
+        local request = table.remove(self.httpRequests, 1); assert(request, "pending HTTP request")
+        request.callback({ ok = true, status = 200, body = self:encode(data) })
     end
     function fake:signal(sender, interface, member, data)
         self.stream(self:encode({ type = "signal", sender = sender, interface = interface, member = member,
@@ -95,7 +113,7 @@ local function service()
     end
     function fake:tick(ms) self.now = self.now + (ms or 1000); self.env.update() end
     function fake:start(properties)
-        self:reply({ { name = name, connection = owner }, { name = mediaLib.prefix .. "inactive", connection = "(activatable)" } })
+        self:reply({ { name = playerName or name, connection = owner }, { name = mediaLib.prefix .. "inactive", connection = "(activatable)" } })
         self:reply({ type = "a{sv}", data = { properties or props() } })
     end
     return fake
@@ -174,6 +192,79 @@ equal(cover.state.media.cover, nil, "late downloaded cover is discarded")
 cover.downloads[2].callback(true)
 equal(cover.state.media.cover, cover.downloads[2].path)
 cover.env.onExit(); equal(cover.removed[#cover.removed], cover.downloads[2].path, "owned artwork cleanup")
+
+local function song(title, loading)
+    return { code = 200, data = { name = title, lyricLoading = loading or false, lrcData = {
+        { startTime = 0, words = { { word = title }, { word = " lyric" } } },
+        { startTime = 2000, words = { { word = "Next line" } } },
+    } } }
+end
+local splayerLib = assert(loadPlugin("lib/splayer.luau"))()
+local parsed, waiting = splayerLib.parse(song("A").data, { trackId = "/track/A", title = "A" })
+equal(parsed[1].text, "A lyric", "SPlayer words become line text without retaining word timing")
+equal(waiting, false)
+local idSong = song("Different title").data; idSong.id = 123
+equal(#splayerLib.parse(idSong, { trackId = "/com/splayer/track/123", title = "A" }), 2, "match SPlayer's numeric track ID")
+equal(#splayerLib.parse(idSong, { trackId = "/com/splayer/track/124", title = "A" }), 0, "reject lyrics from the previous track")
+idSong.lrcData = { { startTime = 0/0, words = { { word = "invalid" } } } }
+equal(#splayerLib.parse(idSong, { trackId = "/track/123", title = "A" }), 0, "reject non-finite lyric timestamps")
+local spName = mediaLib.prefix .. "splayer.instance"
+local localPlayer = service(spName); localPlayer:start(props("A"))
+equal(localPlayer.httpCount, 1, "one local lyric request when a SPlayer track appears")
+equal(localPlayer.httpRequests[1].url, "http://127.0.0.1:25884/api/control/song-info", "only the player's loopback API is contacted")
+localPlayer:httpReply(song("A"))
+equal(localPlayer.state.lyrics.source, "splayer")
+equal(localPlayer.state.lyrics.lines[1].text, "A lyric")
+local localPublications = localPlayer.publications.lyrics
+for _ = 1, 120 do localPlayer:tick() end
+equal(localPlayer.httpCount, 1, "paused SPlayer does not poll HTTP")
+equal(localPlayer.splayerParses, 1, "cached SPlayer lyrics are parsed only once")
+equal(localPlayer.publications.lyrics, localPublications, "unchanged local lyrics are not republished")
+localPlayer:signal(owner, "org.mpris.MediaPlayer2.Player", "Seeked", { 3000000 })
+equal(localPlayer.httpCount, 1, "seeking does not reload complete lyrics")
+localPlayer:change({ Metadata = props("B").Metadata })
+localPlayer:change({ Metadata = props("C").Metadata })
+equal(#localPlayer.httpRequests, 1, "local lyric requests are serialized")
+localPlayer:httpReply(song("B"))
+equal(localPlayer.state.lyrics.status, "missing", "late HTTP response cannot restore a previous track")
+localPlayer:tick(); localPlayer:httpReply(song("C"))
+equal(localPlayer.state.lyrics.lines[1].text, "C lyric")
+localPlayer:change({ Metadata = props("A").Metadata })
+equal(localPlayer.httpCount, 3, "returning to a cached song does not fetch again")
+equal(localPlayer.state.lyrics.lines[1].text, "A lyric")
+localPlayer:change({ PlaybackStatus = variant("s", "Playing") }); localPlayer:tick(30000)
+localPlayer:reply({ type = "x", data = { 10000000 } })
+equal(localPlayer.httpCount, 3, "position calibration does not reload local lyrics")
+localPlayer.env.onConfigChanged()
+equal(localPlayer.httpCount, 3, "unrelated config updates preserve the lyric cache")
+localPlayer.splayerEnabled = false; localPlayer.env.onConfigChanged()
+equal(localPlayer.state.lyrics.status, "missing", "disabling the fallback clears cached SPlayer lyrics")
+equal(localPlayer.httpCount, 3)
+localPlayer.splayerEnabled = true; localPlayer.env.onConfigChanged()
+equal(localPlayer.httpCount, 4, "enabling the fallback reads the current song")
+local delayed = service(spName); delayed:start(props("A"))
+for attempt = 1, 4 do
+    delayed:httpReply(song("A", true))
+    delayed:tick(2000)
+end
+for _ = 1, 100 do delayed:tick() end
+equal(delayed.httpCount, 4, "lyric-loading retries are bounded")
+equal(#delayed.httpRequests, 0, "no idle retry loop after the limit")
+local preferred = service(spName); preferred:start(props("A"))
+preferred:change({ Metadata = props("A", nil, nil, "[00:00]MPRIS wins").Metadata })
+preferred:httpReply(song("A"))
+equal(preferred.state.lyrics.source, "mpris", "late local response cannot overwrite MPRIS lyrics")
+equal(preferred.state.lyrics.lines[1].text, "MPRIS wins")
+local stopped = service(spName); stopped:start(props("A"))
+stopped.env.onExit(); stopped:httpReply(song("A"))
+equal(stopped.state.lyrics.status, "missing", "HTTP callbacks are inert after service shutdown")
+local disabled = service(spName); disabled.splayerEnabled = false; disabled:start(props("A"))
+equal(disabled.httpCount, 0, "local SPlayer fallback can be disabled")
+local custom = service(spName); custom.port = 12345; custom:start(props("A"))
+equal(custom.httpRequests[1].url, "http://127.0.0.1:12345/api/control/song-info", "configured port retains loopback-only scope")
+table.remove(custom.httpRequests, 1).callback({ ok = false, status = 0 })
+for _ = 1, 100 do custom:tick() end
+equal(custom.httpCount, 1, "unavailable API does not create a retry loop")
 
 -- Render the real widget with recorded Noctalia snapshots and native control stubs.
 local defaults = {
@@ -296,15 +387,15 @@ equal(textRenderer.offset(1800, 300, 260), 28)
 equal(textRenderer.offset(2300, 300, 260), 40)
 equal(textRenderer.offset(4000, 200, 260), 0)
 equal(#lrc.parse(string.rep("x", 1048577)), 0, "oversized lyrics are rejected before parsing")
--- Exercise asynchronous shaping, fixed baselines, clipping, marquee timing and bounded files.
-local files, requests, removed, callbacks = {}, {}, {}, {}
+-- Exercise one-time JSON measurement and native Unicode text windows.
+local files, requests, removed, callbacks, layouts = {}, {}, {}, {}, {}
 local rendererClock = 0
 local renderEnv = { noctalia = {
     nowMs = function() return rendererClock end,
     commandExists = function() return true end, mkdirAll = function() return true end,
-    getSetting = function() return "sans-serif" end, getColor = function() return "#ffffff" end,
+    getSetting = function() return "sans-serif" end,
+    json = { decode = function(raw) return layouts[raw] end },
     readFile = function(path) return files[path] end,
-    writeFile = function(path, value) files[path] = value; return true end,
     removeFile = function(path) removed[path] = true; files[path] = nil end,
     runAsync = function(argv, callback)
         requests[#requests + 1] = argv
@@ -314,55 +405,51 @@ local renderEnv = { noctalia = {
 } }
 setmetatable(renderEnv, { __index = _G })
 local renderer = assert(loadPlugin("lib/text.luau", "t", renderEnv))().new()
-local slots = { { text = "Long lyric 中文 & <text>", size = 13, color = "on_surface", weight = "medium", height = 20 } }
+local slots = { { text = "ABCD", size = 13, color = "on_surface", weight = "medium", height = 20 } }
 local function config(key) return defaults[key] end
-local function finish(width, height, baseline)
-    files[renderer.directory .. "/source.svg"] = string.format('<svg viewBox="0 0 %s %s"><defs/><g><use xlink:href="#glyph0-1" x="0" y="%s"/></g></svg>', width, height, baseline)
-    callbacks[#callbacks]({ exitCode = 0 })
-end
 local measuredPair = { first = slots[1].text, second = "", color = "on_surface" }
 equal(model.textWidth(measuredPair, config, 20, renderer), nil, "wait for asynchronous width measurement")
-equal(renderer:draw(slots, config, 260, 20, 0, nil, true, "incoming"), nil, "native fallback while shaping")
-equal(#requests, 1, "measurement and rendering share one shaping process")
-equal(requests[1][9], "--text=" .. slots[1].text, "text stays a single argument including XML characters")
-finish(400, 18, 14)
-equal(model.textWidth(measuredPair, config, 20, renderer), 260, "cap overflowing lyrics at the configured maximum")
+equal(renderer:display(slots[1], config, 260), "ABCD", "native fallback while measuring")
+equal(#requests, 1, "measurement and display share one process")
+equal(requests[1][7], "--text=ABCD", "text stays a single process argument")
+equal(requests[1][8]:find("--serialize-to=", 1, true), 1, "Pango produces layout JSON, not an image")
+layouts.fixture = { output = { width = 409600,
+    ["log-attrs"] = { { ["cursor-position"] = true }, { ["cursor-position"] = true }, { ["cursor-position"] = true }, { ["cursor-position"] = true } },
+    lines = { { runs = { { offset = 0, glyphs = {
+        { width = 102400, ["log-cluster"] = 0 }, { width = 102400, ["log-cluster"] = 1 },
+        { width = 102400, ["log-cluster"] = 2 }, { width = 102400, ["log-cluster"] = 3 },
+    } } } } },
+} }
+files[renderer.directory .. "/layout.json"] = "fixture"
+callbacks[1]({ exitCode = 0 })
+equal(model.textWidth(measuredPair, config, 20, renderer), 260, "cap overflowing lyrics at the maximum")
 defaults.text_width = 500
-equal(model.textWidth(measuredPair, config, 20, renderer), 400, "expand long lyrics completely when they fit")
-equal(#requests, 1, "changing maximum width reuses shaped text")
+equal(model.textWidth(measuredPair, config, 20, renderer), 400, "expand completely when the text fits")
+equal(#requests, 1, "resizing reuses the measured layout")
 defaults.text_width = 260
-local path = renderer:draw(slots, config, 260, 20, 0, { x = 8, y = 4 }, true, "incoming")
-equal(files[path]:find('clip%-path="url%(#viewport%)"') ~= nil, true, "text clips inside fixed viewport")
-equal(files[path]:find('x="8.00" y="5.00"', 1, true) ~= nil, true, "only glyph coordinates move")
-rendererClock = 1800
-path = renderer:draw(slots, config, 260, 20, 0, nil, true, "incoming")
-equal(files[path]:find('x="-28.00"', 1, true) ~= nil, true)
+equal(renderer:display(slots[1], config, 260), "AB", "long line begins with a fitting native text window")
 equal(renderer.scrolling, true)
-for n = 1, 40 do
-    rendererClock = rendererClock + 33
-    renderer:draw(slots, config, 260, 20, 0, nil, true, "incoming")
-end
-equal(#renderer.files <= 16, true, "temporary frames are bounded")
-slots[1].text = "New glyphs gj国"
-equal(renderer:draw(slots, config, 260, 20, 0, nil, true, "incoming"), renderer.last.incoming.path, "retain the fixed image while the next lyric is shaped")
-finish(120, 22, 17)
-path = renderer:draw(slots, config, 260, 20, 0, nil, true, "incoming")
-equal(files[path]:find('y="-2.00"', 1, true) ~= nil, true, "changed font fallback metrics keep the baseline fixed")
-equal(files[path]:find('x="0.00"', 1, true) ~= nil, true, "a new short lyric resets scrolling")
-local previous = renderer:draw(slots, config, 260, 20, 0, nil, true, "outgoing")
-slots[1].text = "Long lyric 中文 & <text>"
-for n = 1, 80 do
-    rendererClock = rendererClock + 33
-    renderer:draw(slots, config, 260, 20, 0, nil, true, "incoming")
-end
-local count = 0
-for _ in pairs(files) do count = count + 1 end
-equal(count <= 17, true, "protected outgoing frame does not grow the temporary directory")
-equal(files[previous] ~= nil, true, "outgoing frame survives incoming scroll updates")
+rendererClock = 4500
+equal(renderer:display(slots[1], config, 260), "BC", "remove complete leading characters as time advances")
+rendererClock = 6000
+equal(renderer:display(slots[1], config, 260), "CD", "last window includes the complete ending")
+equal(#requests, 1, "advancing text windows never starts a process")
+local native = model.textBlock(measuredPair, config, 260, 20, "incoming", 1)
+equal(native.kind, "column", "all lyric rendering uses native UI")
+equal(find(native, "label").kind, "label")
+local unicode = "A你e" .. utf8.char(0x301) .. "👨‍👩‍👧‍👦Z"
+local stops = { { byte = 1, x = 0 }, { byte = 2, x = 10 }, { byte = 5, x = 30 },
+    { byte = 8, x = 40 }, { byte = #unicode, x = 70 }, { byte = #unicode + 1, x = 80 } }
+local unicodeSource = { width = 80, stops = stops }
+equal(textRenderer.window(unicodeSource, unicode, 35, 0), "A你", "native window keeps UTF-8 characters intact")
+equal(textRenderer.window(unicodeSource, unicode, 45, 2100), "👨‍👩‍👧‍👦Z", "tail window keeps joined emoji intact")
+equal(textRenderer.window(unicodeSource, unicode, 80, 2100), unicode, "fitting text remains unchanged")
+equal(textRenderer.window({ width = 100, stops = { { byte = 1, x = 0 }, { byte = #unicode + 1, x = 100 } } }, unicode, 60, 2300), unicode,
+    "a cluster wider than the viewport is left to native clipping, never cut apart")
 renderer:close()
-equal(files[previous], nil, "normal exit removes frames")
+equal(files[renderer.directory .. "/layout.json"], nil, "exit removes measured layout file")
 equal(requests[#requests][1], "rmdir")
-equal(renderer:draw(slots, config, 260, 20, 0, nil, true, "incoming"), nil)
+equal(renderer:source(slots[1], config), nil, "closed measurer cannot start another process")
 local renders = 0
 local originalRender = env.barWidget.render
 env.barWidget.render = function(value) renders = renders + 1; originalRender(value) end
@@ -403,4 +490,11 @@ equal(find(view, "lyrics").props.width, 81, "pending shaping retains the previou
 widths.Pending = 90
 env.onConfigChanged()
 equal(find(view, "lyrics").props.width, 90, "ready measurement updates the widget width")
+sizingRenderer.display = function(_, slot) return slot.text == "Overflow" and "flow" or slot.text end
+defaults.transition = "fade"
+env.onConfigChanged()
+watchers.lyrics({ status = "synced", source = "splayer", lines = lrc.parse("[00:00]Overflow") })
+equal(text("current"), "flow", "SPlayer lyrics pass through the native text window")
+watchers.lyrics({ status = "synced", lines = lrc.parse("[00:00]Long") })
+equal(find(find(view, "outgoing"), "label").props.text, "flow", "fade out the visible window instead of jumping to the line beginning")
 print(string.format("Passed %d checks", checks))

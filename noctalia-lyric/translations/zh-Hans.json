@@ -9,7 +9,7 @@
   "settings.cover_radius.label": "封面圆角",
   "settings.cover_gap.label": "封面与歌词间距",
   "settings.text_width.label": "歌词最大宽度",
-  "settings.text_width.description": "随文字长度自动伸缩，达到上限后超长单行自动滚动。悬停可查看完整内容。",
+  "settings.text_width.description": "随文字长度自动伸缩；达到上限后逐步移除开头的完整字符，显示后半句。悬停可查看全文。",
   "settings.second_line.label": "第二行内容",
   "options.second_line.next": "下一句歌词",
   "options.second_line.metadata": "歌手信息",
@@ -61,10 +61,13 @@
   "settings.transition.label": "歌词切换动效",
   "options.transition.none": "关闭",
   "options.transition.fade": "淡入淡出",
-  "options.transition.slide_up": "向上滑入",
-  "options.transition.slide_left": "向左滑入",
   "settings.transition_duration.label": "动效时长（毫秒）",
   "state.mpris": "MPRIS 本地歌词",
   "settings.dual_font_size.label": "双行当前句字号",
-  "settings.dual_font_size.description": "独立于单行字号，两行紧凑排列后整体居中。"
+  "settings.dual_font_size.description": "独立于单行字号，两行紧凑排列后整体居中。",
+  "settings.splayer_lyrics.label": "SPlayer 本机歌词回退",
+  "settings.splayer_lyrics.description": "MPRIS 无歌词时，仅从 SPlayer 本机接口按切歌读取并缓存，不查询在线歌词。",
+  "settings.splayer_port.label": "SPlayer 本机接口端口",
+  "settings.splayer_port.description": "对应 SPlayer API 端口，仅连接 127.0.0.1。",
+  "state.splayer": "SPlayer 本机歌词"
 }

@@ -8,6 +8,8 @@
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
 | `player` | 空 | 优先显示正在播放的播放器；可指定实例名或播放器前缀 |
+| `splayer_lyrics` | `true` | MPRIS 无歌词时启用 SPlayer 本机接口回退 |
+| `splayer_port` | `25884` | SPlayer API 端口；仅连接 `127.0.0.1`，切歌读取并缓存 |
 | `poll_interval` | `30000` | 仅播放时校准位置，单位 ms；范围 10000–120000 |
 
 `poll_interval` 是低频校准间隔，不是画面刷新间隔。暂停、切歌、跳转和播放器退出通过 D-Bus 信号处理；旧配置中小于 10000 的值按 10000 处理。
@@ -16,14 +18,16 @@
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `text_width` | `260` | 歌词区域最大宽度；先完整展示，超过上限的单行再滚动 |
+| `text_width` | `260` | 歌词区域最大宽度；先完整展示，超过上限的单行逐字移位 |
 | `second_line` | `next` | `next` 下一句、`metadata` 歌手、`off` 单行 |
 | `font_size` | `13` | 单行字号 |
 | `dual_font_size` / `secondary_font_size` | `10` / `8` | 双行当前句与第二行字号 |
 | `content_height` | `22` | 固定内容高度，封面和双行字号自动适配 |
 | `line_gap` | `0` | 双行间距 |
 | `show_progress` | `true` | 背景播放进度开关 |
-| `transition` | `fade` | `none`、`fade`、`slide_up`、`slide_left` |
+| `transition` | `fade` | `none` 关闭、`fade` 淡入淡出 |
+
+旧配置中的 `slide_up`、`slide_left` 会按淡入淡出处理。
 
 尺寸使用逻辑像素。短句自动收缩，长句展开至最大宽度；双行按较长一行确定宽度，封面、间距和左右边距另外计入总宽度。内容高度应适合当前状态栏胶囊；切句动效仅移动歌词。
 

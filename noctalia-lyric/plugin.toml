@@ -1,6 +1,6 @@
 id = "pupu/noctalia-lyric"
 name = "Noctalia Lyric"
-version = "1.2.2"
+version = "1.2.3"
 plugin_api = 31
 author = "pupu"
 license = "MIT"
@@ -24,6 +24,22 @@ default = 30000
 description_key = "settings.poll_interval.description"
 min = 10000
 max = 120000
+
+[[setting]]
+key = "splayer_lyrics"
+type = "bool"
+label_key = "settings.splayer_lyrics.label"
+description_key = "settings.splayer_lyrics.description"
+default = true
+
+[[setting]]
+key = "splayer_port"
+type = "int"
+label_key = "settings.splayer_port.label"
+description_key = "settings.splayer_port.description"
+default = 25884
+min = 1024
+max = 65535
 
 [[service]]
 id = "lyrics"
@@ -250,7 +266,7 @@ key = "transition"
 type = "select"
 label_key = "settings.transition.label"
 default = "fade"
-options = [{ value = "none", label_key = "options.transition.none" }, { value = "fade", label_key = "options.transition.fade" }, { value = "slide_up", label_key = "options.transition.slide_up" }, { value = "slide_left", label_key = "options.transition.slide_left" }]
+options = [{ value = "none", label_key = "options.transition.none" }, { value = "fade", label_key = "options.transition.fade" }]
 
 [[widget.setting]]
 key = "transition_duration"

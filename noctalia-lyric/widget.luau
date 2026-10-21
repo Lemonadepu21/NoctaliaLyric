@@ -8,7 +8,7 @@ local function config(key)
 end
 local media = noctalia.state.get("media") or { available = false }
 local function lyricState(value)
-    return value and (not value.source or value.source == "mpris") and value or { lines = {}, status = "missing" }
+    return value and (not value.source or value.source == "mpris" or value.source == "splayer") and value or { lines = {}, status = "missing" }
 end
 local lyrics = lyricState(noctalia.state.get("lyrics"))
 local shown, previous, track, changedAt, textWidth
@@ -41,36 +41,39 @@ function update()
     if not shown or track ~= nextTrack then
         previous, changedAt = nil, nil
     elseif shown.first ~= first or shown.second ~= second then
-        previous, changedAt = shown, now
+        previous, changedAt = { first = shown.displayed or shown.first, second = shown.second, color = shown.color }, now
     end
     shown, track = pair, nextTrack
     local frame = view.motion(config("transition"), changedAt and now - changedAt or config("transition_duration"),
         config("transition_duration"))
     if not frame.active then previous = nil end
 
+    local height = config("content_height")
+    local innerHeight = math.max(12, height - config("padding_v") * 2)
+    renderer.scrolling = false
+    if not vertical then
+        textWidth = math.min(config("text_width"), view.textWidth(pair, config, innerHeight, renderer)
+            or textWidth or config("text_width"))
+    end
+    local displayed = not vertical and view.displayPair(pair, config, textWidth, innerHeight, renderer) or pair
+    pair.displayed = displayed.first
+    local interval = frame.active and 33 or (media.available and media.playing or renderer.scrolling) and 200 or 1000
     local progress = config("show_progress") and media.available and (media.duration or 0) > 0 and position / (media.duration * 1000) or 0
-    local signature = { first, second, color, media.cover or "", media.playing or false, media.available or false,
+    local signature = { first, displayed.first, second, color, media.cover or "", media.playing or false, media.available or false,
         progress, frame.opacity, frame.x, frame.y, vertical or false, media.title or "", media.artist or "",
         lyrics.source or lyrics.status or "", noctalia.getColor(color) or "", noctalia.getColor(config("secondary_color")) or "",
         noctalia.getSetting("shell.font_family") or "" }
     local unchanged = renderSignature ~= nil and #signature == #renderSignature
     if unchanged then for i, value in ipairs(signature) do if value ~= renderSignature[i] then unchanged = false; break end end end
-    if unchanged and not renderer.scrolling then
-        noctalia.setUpdateInterval(frame.active and 33 or media.available and media.playing and 200 or 1000)
+    if unchanged then
+        noctalia.setUpdateInterval(interval)
         return
     end
     renderSignature = signature
-    renderer.scrolling = false
-    local height = config("content_height")
-    local innerHeight = math.max(12, height - config("padding_v") * 2)
     local size = math.min(config("cover_size"), innerHeight)
     local showCover = config("show_cover") or vertical
     local coverWidth = showCover and size or 0
     local gap = showCover and not vertical and config("cover_gap") or 0
-    if not vertical then
-        textWidth = math.min(config("text_width"), view.textWidth(pair, config, innerHeight, renderer)
-            or textWidth or config("text_width"))
-    end
     local width = vertical and size or textWidth + coverWidth + gap
     local children = {}
     if showCover then
@@ -86,7 +89,7 @@ function update()
         end
     end
     if not vertical then
-        children[#children + 1] = view.lyricLayer(pair, previous, frame, config, textWidth, innerHeight, renderer)
+        children[#children + 1] = view.lyricLayer(displayed, previous, frame, config, textWidth, innerHeight)
     end
     local container = vertical and ui.column or ui.row
     width = width + config("padding_h") * 2
@@ -105,7 +108,7 @@ function update()
     local tip = media.available and (media.title .. "\n" .. media.artist .. "\n" .. first .. "\n" .. second
         .. "\n" .. tr("state." .. (lyrics.source or lyrics.status))) or first
     barWidget.setTooltip(tip .. "\n" .. tr("hint"))
-    noctalia.setUpdateInterval((frame.active or renderer.scrolling) and 33 or media.available and media.playing and 200 or 1000)
+    noctalia.setUpdateInterval(interval)
 end
 
 function onExit() renderer:close() end
