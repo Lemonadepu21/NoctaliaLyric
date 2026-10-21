@@ -1,0 +1,270 @@
+id = "pupu/noctalia-lyric"
+name = "Noctalia Lyric"
+version = "1.2.0"
+plugin_api = 31
+author = "pupu"
+license = "MIT"
+icon = "music"
+description = "Album art and synchronized lyrics for the Noctalia bar."
+tags = ["media", "lyrics", "bar"]
+dependencies = ["busctl", "pango-view"]
+
+[[setting]]
+key = "player"
+type = "string"
+label_key = "settings.player.label"
+default = ""
+description_key = "settings.player.description"
+
+[[setting]]
+key = "poll_interval"
+type = "int"
+label_key = "settings.poll_interval.label"
+default = 30000
+description_key = "settings.poll_interval.description"
+min = 10000
+max = 120000
+
+[[service]]
+id = "lyrics"
+entry = "service.luau"
+
+[[widget]]
+id = "bar"
+entry = "widget.luau"
+
+[widget.actions]
+left = "panel-toggle control-center media"
+middle = "media toggle"
+right = "settings-open-widget"
+
+[[widget.setting]]
+key = "show_cover"
+type = "bool"
+label_key = "settings.show_cover.label"
+default = true
+
+[[widget.setting]]
+key = "cover_size"
+type = "int"
+label_key = "settings.cover_size.label"
+default = 28
+description_key = "settings.cover_size.description"
+min = 16
+max = 64
+
+[[widget.setting]]
+key = "cover_radius"
+type = "int"
+label_key = "settings.cover_radius.label"
+default = 6
+min = 0
+max = 32
+
+[[widget.setting]]
+key = "cover_gap"
+type = "int"
+label_key = "settings.cover_gap.label"
+default = 9
+min = 0
+max = 32
+
+[[widget.setting]]
+key = "text_width"
+type = "int"
+label_key = "settings.text_width.label"
+default = 260
+description_key = "settings.text_width.description"
+min = 60
+max = 800
+
+[[widget.setting]]
+key = "second_line"
+type = "select"
+label_key = "settings.second_line.label"
+default = "next"
+options = [{ value = "next", label_key = "options.second_line.next" }, { value = "metadata", label_key = "options.second_line.metadata" }, { value = "off", label_key = "options.second_line.off" }]
+
+[[widget.setting]]
+key = "font_family"
+type = "string"
+label_key = "settings.font_family.label"
+default = ""
+description_key = "settings.font_family.description"
+
+[[widget.setting]]
+key = "font_size"
+type = "int"
+label_key = "settings.font_size.label"
+default = 13
+min = 8
+max = 32
+
+[[widget.setting]]
+key = "secondary_font_size"
+type = "int"
+label_key = "settings.secondary_font_size.label"
+default = 8
+min = 8
+max = 24
+
+[[widget.setting]]
+key = "font_weight"
+type = "select"
+label_key = "settings.font_weight.label"
+default = "medium"
+options = [{ value = "normal", label_key = "options.font_weight.normal" }, { value = "medium", label_key = "options.font_weight.medium" }, { value = "semibold", label_key = "options.font_weight.semibold" }, { value = "bold", label_key = "options.font_weight.bold" }]
+
+[[widget.setting]]
+key = "text_align"
+type = "select"
+label_key = "settings.text_align.label"
+default = "start"
+options = [{ value = "start", label_key = "options.text_align.start" }, { value = "center", label_key = "options.text_align.center" }, { value = "end", label_key = "options.text_align.end" }]
+
+[[widget.setting]]
+key = "line_gap"
+type = "int"
+label_key = "settings.line_gap.label"
+default = 0
+min = 0
+max = 12
+
+[[widget.setting]]
+key = "text_color"
+type = "color"
+label_key = "settings.text_color.label"
+default = "on_surface"
+
+[[widget.setting]]
+key = "secondary_color"
+type = "color"
+label_key = "settings.secondary_color.label"
+default = "on_surface_variant"
+
+[[widget.setting]]
+key = "show_background"
+type = "bool"
+label_key = "settings.show_background.label"
+default = false
+
+[[widget.setting]]
+key = "background_color"
+type = "color"
+label_key = "settings.background_color.label"
+default = "surface_variant"
+
+[[widget.setting]]
+key = "background_radius"
+type = "int"
+label_key = "settings.background_radius.label"
+default = 12
+min = 0
+max = 40
+
+[[widget.setting]]
+key = "padding_h"
+type = "int"
+label_key = "settings.padding_h.label"
+default = 4
+min = 0
+max = 32
+
+[[widget.setting]]
+key = "padding_v"
+type = "int"
+label_key = "settings.padding_v.label"
+default = 1
+min = 0
+max = 16
+
+[[widget.setting]]
+key = "time_offset"
+type = "int"
+label_key = "settings.time_offset.label"
+default = 0
+description_key = "settings.time_offset.description"
+min = -10000
+max = 10000
+
+[[widget.setting]]
+key = "hide_idle"
+type = "bool"
+label_key = "settings.hide_idle.label"
+default = true
+
+[[widget.setting]]
+key = "hide_paused"
+type = "bool"
+label_key = "settings.hide_paused.label"
+default = false
+
+[[widget.setting]]
+key = "content_height"
+type = "int"
+label_key = "settings.content_height.label"
+default = 22
+min = 16
+max = 64
+description_key = "settings.content_height.description"
+
+[[widget.setting]]
+key = "dim_paused"
+type = "bool"
+label_key = "settings.dim_paused.label"
+default = true
+description_key = "settings.dim_paused.description"
+
+[[widget.setting]]
+key = "text_opacity"
+type = "double"
+label_key = "settings.text_opacity.label"
+default = 1.0
+min = 0.2
+max = 1.0
+description_key = "settings.text_opacity.description"
+
+[[widget.setting]]
+key = "show_progress"
+type = "bool"
+label_key = "settings.show_progress.label"
+default = true
+
+[[widget.setting]]
+key = "progress_color"
+type = "color"
+label_key = "settings.progress_color.label"
+default = "primary"
+
+[[widget.setting]]
+key = "progress_opacity"
+type = "double"
+label_key = "settings.progress_opacity.label"
+default = 0.25
+min = 0.0
+max = 1.0
+description_key = "settings.progress_opacity.description"
+
+[[widget.setting]]
+key = "transition"
+type = "select"
+label_key = "settings.transition.label"
+default = "fade"
+options = [{ value = "none", label_key = "options.transition.none" }, { value = "fade", label_key = "options.transition.fade" }, { value = "slide_up", label_key = "options.transition.slide_up" }, { value = "slide_left", label_key = "options.transition.slide_left" }]
+
+[[widget.setting]]
+key = "transition_duration"
+type = "int"
+label_key = "settings.transition_duration.label"
+default = 240
+min = 80
+max = 600
+
+[[widget.setting]]
+key = "dual_font_size"
+type = "int"
+label_key = "settings.dual_font_size.label"
+description_key = "settings.dual_font_size.description"
+default = 10
+min = 8
+max = 32

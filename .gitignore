@@ -1,0 +1,17 @@
+# Local tools and credentials
+.agents/
+.codex/
+.aws/
+.env
+.env.*
+!.env.example
+
+# Editor and runtime output
+.DS_Store
+*.swp
+*.swo
+*~
+*.log
+*.luac
+__pycache__/
+*.py[cod]
